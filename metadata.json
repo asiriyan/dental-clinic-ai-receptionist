@@ -1,0 +1,6 @@
+{
+  "name": "Denttora Dental Clinic AI Assistant",
+  "description": "Patient care and automated appointment booking AI assistant for Denttora Dental Clinic in Addis Ababa with Gemini RAG and neural voice.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

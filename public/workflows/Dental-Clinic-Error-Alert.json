@@ -1,0 +1,109 @@
+{
+  "name": "Dental Clinic - Error Alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9a8c3a26-0097-4f76-b246-ecbe8f9d351f",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $input.first().json;\nconst wf = e.workflow || {};\nconst ex = e.execution || {};\nconst msg = (ex.error && ex.error.message) || 'Unknown error';\nconst node = ex.lastNodeExecuted || 'unknown node';\n\n// Throttle: same problem at most once every 10 minutes, so a bad night does not flood the inbox.\nconst sd = $getWorkflowStaticData('global');\nsd.last = sd.last || {};\nconst key = [wf.name, node, msg.slice(0, 80)].join('|');\nconst t = Date.now();\nif (sd.last[key] && t - sd.last[key] < 10 * 60 * 1000) return [];\nsd.last[key] = t;\nfor (const k of Object.keys(sd.last)) if (t - sd.last[k] > 3600 * 1000) delete sd.last[k];\n\nconst d = DateTime.now().setZone('Africa/Addis_Ababa').setLocale('en');\nconst toEth = (h) => ((h - 6 + 12) % 12) || 12;\nconst when = d.toFormat('cccc, LLLL d, h:mm:ss a') + ' (' + toEth(d.hour) + ':' + d.toFormat('mm:ss') + ' local)';\nconst esc = (v) => String(v == null ? '' : v).replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst html = '<div style=\"font-family:Arial,sans-serif;max-width:560px;color:#222\">' +\n  '<h2 style=\"color:#b00020;margin:0 0 8px\">Workflow error</h2>' +\n  '<p><b>Workflow:</b> ' + esc(wf.name) + '</p>' +\n  '<p><b>Failed at:</b> ' + esc(node) + '</p>' +\n  '<p><b>Message:</b> ' + esc(msg) + '</p>' +\n  '<p><b>When:</b> ' + esc(when) + '</p>' +\n  '<p><b>Execution:</b> ' + esc(ex.id || '-') + (ex.url ? ' - <a href=\"' + esc(ex.url) + '\">open in n8n</a>' : '') + '</p>' +\n  '<p style=\"color:#666\">Repeats of this same error are muted for 10 minutes.</p></div>';\nreturn [{ json: { subject: '[ALERT] ' + wf.name + ' failed at ' + node, html } }];\n"
+      },
+      "id": "e4b9229a-ce38-4cdd-82a8-ae0c05409096",
+      "name": "Format alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "yeabsirawithfate@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d3bcfc2d-7f9a-4473-a247-cd2e252f0f43",
+      "name": "Send alert email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1520,
+        368
+      ],
+      "webhookId": "26b394fb-d29f-4094-ab22-3f24dd4c9497",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "2UDC81UyCyPffdYU",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Error alert\nEmails you when a linked workflow fails.\nIn the **Dental chat** and **Booking API** workflows: Settings > Error workflow > pick this one.\nSet the alert address in `Send alert email`. Repeated identical errors are muted for 10 minutes. No need to activate this workflow.",
+        "height": 200,
+        "width": 420,
+        "color": 3
+      },
+      "id": "383cf374-c621-4b15-bfad-edc40e9fd7ae",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        176
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert": {
+      "main": [
+        [
+          {
+            "node": "Send alert email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c768f690-a725-4eaa-93d4-f6dfd61da6e5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "293a5c353ade3d9db04f99e3506e8ac47e2729f10a86599aad4798e9d7d08d16"
+  },
+  "nodeGroups": [],
+  "id": "tYGlas0yHVnNd3mf",
+  "tags": []
+}

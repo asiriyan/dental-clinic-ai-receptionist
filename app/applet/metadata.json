@@ -1,0 +1,6 @@
+{
+  "name": "Denttora - Dental Clinic RAG & Booking Webhook Diagnostic Studio",
+  "description": "Interactive diagnostic assistant, live webhook debugger, and full patient RAG chat & appointment booking suite for n8n dental clinic workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Dental n8n RAG & Booking Workflow Analyzer",
+  "description": "Comprehensive diagnostic tool and live workflow debugger for n8n Dental Clinic RAG AI agent, Pinecone retrieval, and automated booking sub-workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
