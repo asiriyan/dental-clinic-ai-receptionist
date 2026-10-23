@@ -204,6 +204,21 @@ def normalize_voice_transcript(raw_text: str) -> dict:
 
 def simulate_reply(clean_message: str) -> str:
     m = clean_message.lower()
+    is_amharic = bool(re.search(r"[\u1200-\u137F]", clean_message))
+
+    if is_amharic:
+        if any(w in m for w in ["ሰላም", "ጤና", "እንደምን"]):
+            return "ጤና ይስጥልኝ! እንኳን ወደ ዴንቶራ የጥርስ ህክምና ክሊኒክ በደህና መጡ። እኛ የጥርስ ማጽዳት፣ መሙላት፣ ስር ህክምና እና የጥርስ ህክምና ቀጠሮዎችን እንሰጣለን። ዛሬ በምን ልርዳዎት?"
+        if any(w in m for w in ["ማጽዳት", "ማስዳት", "ቆሻሻ", "ታርታር"]):
+            return "የጥርስ ማጽዳት (Scaling) አገልግሎታችን 1,200 ብር ሲሆን፣ 30 ደቂቃ ይወስዳል። ለነገ ቀጠሮ ማስያዝ ይፈልጋሉ?"
+        if any(w in m for w in ["ህመም", "ማመም", "ነቅዞ", "መሙላት"]):
+            return "የጥርስ ህመም ካለብዎት ፈጣን የህመም ማስታገሻ እና ሙሌት (ከ1,500 ብር) እንሰጣለን። ለነገ ቀጠሮ ማስያዝ ይፈልጋሉ?"
+        if any(w in m for w in ["ክፍት", "ሰዓት", "ነገ", "ቀጠሮ"]):
+            return "ለነገ ከጠዋቱ 3:00 (9:00 AM)፣ 4:00 (10:00 AM)፣ እንዲሁም ከሰዓት 8:00 (2:00 PM) የ30 ደቂቃ ክፍት ሰዓቶች አሉን። የትኛው ሰዓት ይመችዎታል?"
+        if any(w in m for w in ["ዋጋ", "ስንት", "ክፍያ"]):
+            return "የዋጋ ዝርዝር፡ የጥርስ ማጽዳት 1,200 ብር፣ ሙሌት ከ1,500 እስከ 2,500 ብር፣ ስር ህክምና ከ4,500 ብር።"
+        return "እንኳን ወደ ዴንቶራ የጥርስ ህክምና ክሊኒክ በደህና መጡ! በምን ልርዳዎት?"
+
     if "clean" in m or "scaling" in m:
         return "We would be delighted to take care of your teeth cleaning! Our scaling and polishing removes tartar, protects gums, and is 1,200 ETB. Would you like to book a slot for tomorrow?"
     if "book" in m or "tomorrow" in m or "slot" in m:
@@ -214,8 +229,11 @@ def simulate_reply(clean_message: str) -> str:
 import base64
 
 async def generate_deepgram_tts(text: str) -> Optional[str]:
-    """Generates high-fidelity neural audio from Deepgram Aura model on the backend."""
+    """Generates high-fidelity neural audio from Deepgram Aura model on the backend (English only)."""
     if not DEEPGRAM_API_KEY or not text or not text.strip():
+        return None
+    # Never send Amharic to Deepgram English model
+    if re.search(r"[\u1200-\u137F]", text):
         return None
     try:
         # Strip markdown syntax and emojis for clean voice speech
@@ -242,6 +260,78 @@ async def generate_deepgram_tts(text: str) -> Optional[str]:
     except Exception as e:
         log.warning("Deepgram TTS generation error: %s", e)
         return None
+
+
+async def generate_gemini_tts(text: str, language: str = "Amharic") -> Optional[str]:
+    """Generates Amharic / multilingual speech using Google Gemini Flash TTS (gemini-3.8-flash-lite-tts)."""
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key or not text or not text.strip():
+        return None
+    try:
+        clean = re.sub(r"[*#_~`]", "", text).replace("\n", " ").strip()
+        if not clean:
+            return None
+        is_amharic = bool(re.search(r"[\u1200-\u137F]", clean)) or "am" in language.lower()
+        style = "Warm, polite Ethiopian dental clinic assistant speaking natural Amharic" if is_amharic else "Warm dental clinic assistant"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": clean[:1000],
+                            "speechMetadata": {"style": style}
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {"voiceName": "Kore"}
+                    }
+                }
+            }
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent?key={gemini_key}",
+                headers={"Content-Type": "application/json", "User-Agent": "aistudio-build"},
+                json=payload
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    inline = part.get("inlineData", {})
+                    b64 = inline.get("data")
+                    if b64:
+                        return f"data:audio/wav;base64,{b64}"
+            return None
+    except Exception as e:
+        log.warning("Gemini TTS error: %s", e)
+        return None
+
+
+async def generate_voice_audio(text: str, language: str = "English") -> Optional[str]:
+    """
+    Intelligent language-based voice router:
+    - Amharic: Always bypasses Deepgram Aura and routes to Google Gemini TTS or browser am-ET
+    - English: Uses Deepgram Aura if configured, or Gemini TTS fallback
+    """
+    is_amharic = bool(re.search(r"[\u1200-\u137F]", text)) or "am" in language.lower()
+    if is_amharic:
+        if os.getenv("GEMINI_API_KEY"):
+            return await generate_gemini_tts(text, "Amharic")
+        return None
+    if DEEPGRAM_API_KEY:
+        dg = await generate_deepgram_tts(text)
+        if dg:
+            return dg
+    if os.getenv("GEMINI_API_KEY"):
+        return await generate_gemini_tts(text, "English")
+    return None
 
 
 async def call_n8n(message: str, session_id: str, phone: str, channel: str, language: str) -> dict:
@@ -441,9 +531,9 @@ async def chat_with_n8n(payload: ChatRequest, request: Request):
     reply_text = result.get("reply") or result.get("output") or ""
     audio_data = result.get("audio")
 
-    # Backend TTS: generates audio using Deepgram Aura model if voice is enabled and key is present
-    if not audio_data and payload.voiceEnabled is not False and DEEPGRAM_API_KEY:
-        audio_data = await generate_deepgram_tts(reply_text)
+    # Backend TTS: generates audio using Deepgram (English) or Google Gemini Flash TTS (Amharic)
+    if not audio_data and payload.voiceEnabled is not False:
+        audio_data = await generate_voice_audio(reply_text, payload.language or "English")
 
     return JSONResponse(
         content={

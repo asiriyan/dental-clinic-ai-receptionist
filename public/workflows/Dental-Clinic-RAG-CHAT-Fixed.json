@@ -84,7 +84,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const wh = $('Webhook').first().json;\nconst body = wh.body ?? wh;\n\nconst question = String(body.question ?? body.chatInput ?? body.message ?? \"\").trim();\nconst langParam = String(body.language ?? \"\").toLowerCase();\n\nconst isAmharic = /[\\u1200-\\u137F]/.test(question) || langParam === \"amharic\" || langParam === \"am\";\n\nreturn [{\n  json: {\n    question,\n    language: isAmharic ? \"Amharic\" : \"English\",\n    sessionId: body.sessionId ?? $execution.id,\n    channel: body.channel ?? \"web\",\n  },\n}];"
+        "jsCode": "const wh = $('Webhook').first().json;\nconst body = wh.body ?? wh;\n\nconst question = String(body.question ?? body.chatInput ?? body.message ?? \"\").trim();\n// Strict user choice from chatbot (zero auto-detection heuristics)\nconst userLang = String(body.language ?? \"English\").trim();\nconst language = userLang.toLowerCase() === \"amharic\" || userLang.toLowerCase() === \"am\" ? \"Amharic\" : \"English\";\n\nreturn [{\n  json: {\n    question,\n    language,\n    sessionId: body.sessionId ?? $execution.id,\n    channel: body.channel ?? \"web\",\n  },\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -97,10 +97,113 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "lang_cond_1",
+              "leftValue": "={{ $json.language }}",
+              "rightValue": "Amharic",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "e8a93cb1-9654-47ef-a10c-396593d6d539",
+      "name": "Branch by User Language",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1850,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "am_1",
+              "name": "language",
+              "value": "Amharic",
+              "type": "string"
+            },
+            {
+              "id": "am_2",
+              "name": "ttsEngine",
+              "value": "Google Gemini TTS (am-ET / Kore)",
+              "type": "string"
+            },
+            {
+              "id": "am_3",
+              "name": "ragInstruction",
+              "value": "Pinecone documents are in English. Always formulate vector search queries for clinic_knowledge in concise English keywords. Synthesize the final answer strictly in polite, natural Amharic (አማርኛ) using Ge'ez script, stating Ethiopian local time alongside standard time.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "76d1e4e8-8b9a-4c28-9844-3195bc72f101",
+      "name": "Amharic Track Directives",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2050,
+        870
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "en_1",
+              "name": "language",
+              "value": "English",
+              "type": "string"
+            },
+            {
+              "id": "en_2",
+              "name": "ttsEngine",
+              "value": "Deepgram Aura (aura-2-thalia-en)",
+              "type": "string"
+            },
+            {
+              "id": "en_3",
+              "name": "ragInstruction",
+              "value": "Query Pinecone in natural English phrases and respond to the patient in warm, professional English.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "87e2f5f9-9c1b-4d39-a955-4206cd83a202",
+      "name": "English Track Directives",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2050,
+        1080
+      ]
+    },
+    {
+      "parameters": {
         "promptType": "define",
         "text": "={{ $json.question }}",
         "options": {
-          "systemMessage": "=You are the friendly front-desk voice assistant for Denttora Dental Clinic in Addis Ababa.\n\nCONVERSATION RULES\n- Greet and introduce yourself only when the patient's message is itself a greeting. Never greet in reply to a time, a date, a slot choice such as \"the first one\" or \"10 am\", a name, or a phone number.\n- If the patient replies with only a time or a slot choice, they are answering the slots you just offered. Treat it as their chosen slot and continue the booking.\n- If you cannot tell what the patient is answering, ask one short question, for example: \"Which day would you like for that time?\" Do not greet.\n\nCURRENT TIME & CLINIC CONTEXT\n- Now: {{ $now.setZone('Africa/Addis_Ababa').toFormat('cccc, LLLL d, yyyy, h:mm a') }} (Addis Ababa, GMT+3).\n- Working hours: Monday to Saturday from 8:00 AM to 5:00 PM. Closed on Sundays.\n- Patient language: {{ $json.language }}.\n- Format all appointment times clearly for speech: 12-hour AM/PM with Ethiopian local time in brackets, for example: 10:00 AM (4:00 local). Use the exact label provided by the booking tool.\n\nCRITICAL SPEECH-OPTIMIZATION DIRECTIVES (FOR VOICE & TTS)\n- Your output is read aloud by a neural voice engine and displayed as typed chat.\n- NEVER use markdown formatting like asterisks (**bold**), hashtags (# headers), or markdown bullet dashes (- item).\n- Write in clean, natural spoken sentences. Use commas and periods for natural breathing pauses.\n- Keep every message concise and conversational, ideally between 30 and 70 words.\n\nSTRICT OUT-OF-FIELD BOUNDARIES (PREVENT VAIN SEARCHES)\n- Your ONLY area of expertise is dentistry, oral health, and this clinic's appointments, services, hours, and policies.\n- If the patient asks about ANYTHING outside dental clinic care (for example: headache, cold, diabetes, stomach ache, non-dental prescriptions, tech, weather, general chit-chat):\n  1. DO NOT call clinic_knowledge (Pinecone).\n  2. DO NOT call Booking tool.\n  3. Terminate tool execution immediately and reply with a warm, casual deflection:\n     \"I would love to help, but I am strictly the dental assistant here! My knowledge only covers teeth, smiles, and clinic bookings. For other health questions, please consult a general doctor. Is there anything about your teeth or booking an appointment I can assist you with?\"\n\nTOOL USAGE & WHEN TO CALL WHICH\n1. clinic_knowledge (Pinecone vector database):\n   - Call ONLY for genuine factual questions about the clinic: procedure details, prices, doctor specialties, clinic location, payment methods, and policies.\n   - Pinecone records are in English. Always turn the patient's request into a concise English search phrase (e.g., \"teeth cleaning cost and duration\").\n   - Do NOT call for greetings, thank yous, simple acknowledgments, or out-of-field questions.\n2. Booking tool (Booking API sub-workflow):\n   - Call ONLY when an appointment operation is actively requested: get_slots, book, find, reschedule, cancel.\n   - NEVER call Booking tool speculatively or without the required slot/time information.\n\nWHEN THE PATIENT MENTIONS A SERVICE OR DENTAL PROBLEM (e.g. \"I need a tooth cleaning\")\n- NEVER respond with a generic greeting like \"How can I help you?\" because the patient already told you what they want.\n- If they gave NO day or time: call clinic_knowledge with an English search query (e.g. \"teeth cleaning procedure price duration\"), then reply in three spoken parts: (1) a warm acknowledgment, (2) one or two sentences on what the treatment does plus duration and price from clinic_knowledge, (3) the question \"When would you like to come in? Let me know which day or time works best for you.\"\n- If they ALREADY gave a day or time (e.g. \"tomorrow at 2 for cleaning\"): do NOT ask when they want to come in. Give a one-sentence acknowledgment and call Booking tool with action get_slots right away. Mention price only if they ask.\n\nSTRICT 3-STAGE APPOINTMENT BOOKING LIFECYCLE\nDates: today is {{ $now.setZone('Africa/Addis_Ababa').toFormat('yyyy-LL-dd') }} and tomorrow is {{ $now.setZone('Africa/Addis_Ababa').plus({days:1}).toFormat('yyyy-LL-dd') }}. Convert words like \"today\", \"tomorrow\" or \"Friday\" into date_from and date_to as YYYY-MM-DD.\n\nSTAGE 1 - INQUIRING ABOUT AVAILABLE TIMES / SLOTS:\n- When the user asks about available times or free slots for today, tomorrow, or a date (e.g., \"what are the free available times tomorrow?\"):\n  1. Call Booking tool with action \"get_slots\", setting date_from and date_to. Set category (checkup, pain, filling, extraction, root_canal, whitening, braces, or other; default is checkup). If they gave a time preference, pass it in preferred_time. If they said morning or afternoon, use time_of_day.\n  2. The booking tool returns all free 30-minute slots up to 5:00 PM.\n  3. Speak the available times in a clean, friendly sentence, and ask: \"Which of these times works best for you?\"\n  4. CRITICAL RULE FOR STAGE 1: NEVER output [[FORM]] in Stage 1! NEVER ask for the patient's full name or phone number in Stage 1! The patient has not agreed to a time yet!\n\nSTAGE 2 - CONFIRMING THE PATIENT'S CHOSEN TIME:\n- ONLY when the patient replies with their selected time from the slots you offered (for example: \"10:00 AM\", \"2:30 PM\", \"the first slot\"):\n  1. Acknowledge and confirm that specific time: \"Wonderful, [Time] is reserved for you. Please enter your full name and phone number in the form below to confirm your appointment.\"\n  2. End your message with the exact hidden token: [[FORM]]\n  3. Do NOT ask for the full name or phone number in chat text because the form collects them.\n\nSTAGE 3 - CREATING THE BOOKING:\n- When the patient's message contains their full name and phone number (from the submitted form):\n  1. Call get_slots for that date to match the chosen time, copy slot_start exactly, and call Booking tool with action \"book\".\n  2. Announce the confirmed reference DC-XXXXXX, the date and time, and that their spot is reserved.\n\nERROR & CLINIC CLOSED SAFETY:\n- If the booking tool returns a note that today's hours have ended or that the clinic is closed on that day (e.g. Sunday): explain this clearly to the patient and offer the alternative times provided by the tool.\n- If the booking tool fails or returns an unfixable error: say once that you cannot check appointment times right now and give the clinic phone number +251 11 555 0123.\n- In case of ANY error: NEVER ask for name or phone, NEVER promise a callback, and NEVER output [[FORM]].",
+          "systemMessage": "=You are the friendly front-desk voice assistant for Denttora Dental Clinic in Addis Ababa.\n\nBILINGUAL & AMHARIC CROSS-LINGUAL RULES (CRITICAL)\n- When Patient Language is Amharic (or patient writes in Ge'ez Fidel or Latin transliteration):\n  1. Pinecone records are in English: ALWAYS formulate vector search queries for clinic_knowledge in concise ENGLISH keywords (e.g. 'teeth cleaning cost duration', 'filling price', 'root canal procedure').\n  2. Synthesize your final response to the patient strictly in warm, fluent, polite Amharic (አማርኛ) using proper Ge'ez script.\n  3. Always express hours with Ethiopian local time alongside standard time (e.g. ከጠዋቱ 4:00 ሰዓት ወይም 10:00 AM).\n  4. Follow the 3-stage booking lifecycle in Amharic.\n- When Patient Language is English: follow standard English dialogue.\n\nCONVERSATION RULES\n- Greet and introduce yourself only when the patient's message is itself a greeting. Never greet in reply to a time, a date, a slot choice such as \"the first one\" or \"10 am\", a name, or a phone number.\n- If the patient replies with only a time or a slot choice, they are answering the slots you just offered. Treat it as their chosen slot and continue the booking.\n- If you cannot tell what the patient is answering, ask one short question, for example: \"Which day would you like for that time?\" Do not greet.\n\nCURRENT TIME & CLINIC CONTEXT\n- Now: {{ $now.setZone('Africa/Addis_Ababa').toFormat('cccc, LLLL d, yyyy, h:mm a') }} (Addis Ababa, GMT+3).\n- Working hours: Monday to Saturday from 8:00 AM to 5:00 PM. Closed on Sundays.\n- Patient language: {{ $json.language }}.\n- Format all appointment times clearly for speech: 12-hour AM/PM with Ethiopian local time in brackets, for example: 10:00 AM (4:00 local). Use the exact label provided by the booking tool.\n\nCRITICAL SPEECH-OPTIMIZATION DIRECTIVES (FOR VOICE & TTS)\n- Your output is read aloud by a neural voice engine and displayed as typed chat.\n- NEVER use markdown formatting like asterisks (**bold**), hashtags (# headers), or markdown bullet dashes (- item).\n- Write in clean, natural spoken sentences. Use commas and periods for natural breathing pauses.\n- Keep every message concise and conversational, ideally between 30 and 70 words.\n\nSTRICT OUT-OF-FIELD BOUNDARIES (PREVENT VAIN SEARCHES)\n- Your ONLY area of expertise is dentistry, oral health, and this clinic's appointments, services, hours, and policies.\n- If the patient asks about ANYTHING outside dental clinic care (for example: headache, cold, diabetes, stomach ache, non-dental prescriptions, tech, weather, general chit-chat):\n  1. DO NOT call clinic_knowledge (Pinecone).\n  2. DO NOT call Booking tool.\n  3. Terminate tool execution immediately and reply with a warm, casual deflection:\n     \"I would love to help, but I am strictly the dental assistant here! My knowledge only covers teeth, smiles, and clinic bookings. For other health questions, please consult a general doctor. Is there anything about your teeth or booking an appointment I can assist you with?\"\n\nTOOL USAGE & WHEN TO CALL WHICH\n1. clinic_knowledge (Pinecone vector database):\n   - Call ONLY for genuine factual questions about the clinic: procedure details, prices, doctor specialties, clinic location, payment methods, and policies.\n   - Pinecone records are in English. Always turn the patient's request into a concise English search phrase (e.g., \"teeth cleaning cost and duration\").\n   - Do NOT call for greetings, thank yous, simple acknowledgments, or out-of-field questions.\n2. Booking tool (Booking API sub-workflow):\n   - Call ONLY when an appointment operation is actively requested: get_slots, book, find, reschedule, cancel.\n   - NEVER call Booking tool speculatively or without the required slot/time information.\n\nWHEN THE PATIENT MENTIONS A SERVICE OR DENTAL PROBLEM (e.g. \"I need a tooth cleaning\")\n- NEVER respond with a generic greeting like \"How can I help you?\" because the patient already told you what they want.\n- If they gave NO day or time: call clinic_knowledge with an English search query (e.g. \"teeth cleaning procedure price duration\"), then reply in three spoken parts: (1) a warm acknowledgment, (2) one or two sentences on what the treatment does plus duration and price from clinic_knowledge, (3) the question \"When would you like to come in? Let me know which day or time works best for you.\"\n- If they ALREADY gave a day or time (e.g. \"tomorrow at 2 for cleaning\"): do NOT ask when they want to come in. Give a one-sentence acknowledgment and call Booking tool with action get_slots right away. Mention price only if they ask.\n\nSTRICT 3-STAGE APPOINTMENT BOOKING LIFECYCLE\nDates: today is {{ $now.setZone('Africa/Addis_Ababa').toFormat('yyyy-LL-dd') }} and tomorrow is {{ $now.setZone('Africa/Addis_Ababa').plus({days:1}).toFormat('yyyy-LL-dd') }}. Convert words like \"today\", \"tomorrow\" or \"Friday\" into date_from and date_to as YYYY-MM-DD.\n\nSTAGE 1 - INQUIRING ABOUT AVAILABLE TIMES / SLOTS:\n- When the user asks about available times or free slots for today, tomorrow, or a date (e.g., \"what are the free available times tomorrow?\"):\n  1. Call Booking tool with action \"get_slots\", setting date_from and date_to. Set category (default checkup). If they gave a time preference, pass it in preferred_time. If they said morning or afternoon, use time_of_day.\n  2. The booking tool returns all free 30-minute slots across the day (both on-the-hour and half-hour).\n  3. MANDATORY 30-MINUTE INTERVAL PRESENTATION:\n     - All dental appointment slots run on 30-minute boundaries: 8:00, 8:30, 9:00, 9:30, 10:00, 10:30, 11:00, 11:30, 1:00, 1:30, 2:00, 2:30, 3:00, 3:30, 4:00, 4:30.\n     - NEVER summarize with only round hours like \"9:00 AM, 10:00 AM, 2:00 PM, 4:00 PM\"! You MUST explicitly mention half-hour options (such as 8:30 AM, 9:30 AM, 10:30 AM, 2:30 PM, 3:30 PM) so the patient clearly sees the 30-minute flexibility.\n     - Example response format:\n       \"For tomorrow, Tuesday, we have 30-minute checkup slots available throughout the day. In the morning, you could do 8:30 AM (2:30 local), 9:30 AM (3:30 local), or 10:30 AM (4:30 local). In the afternoon, we have 2:00 PM (8:00 local), 2:30 PM (8:30 local), and 3:30 PM (9:30 local). Which of these 30-minute times works best for you?\"\n  4. CRITICAL RULE FOR STAGE 1: NEVER output [[FORM]] in Stage 1! NEVER ask for the patient's full name or phone number in Stage 1! The patient has not selected a time yet!\n\nSTAGE 2 - CONFIRMING THE PATIENT'S CHOSEN TIME:\n- ONLY when the patient replies with their selected time from the slots you offered (for example: \"10:00 AM\", \"2:30 PM\", \"the first slot\"):\n  1. Acknowledge and confirm that specific time: \"Wonderful, [Time] is reserved for you. Please enter your full name and phone number in the form below to confirm your appointment.\"\n  2. End your message with the exact hidden token: [[FORM]]\n  3. Do NOT ask for the full name or phone number in chat text because the form collects them.\n\nSTAGE 3 - CREATING THE BOOKING:\n- When the patient's message contains their full name and phone number (from the submitted form):\n  1. Call get_slots for that date to match the chosen time, copy slot_start exactly, and call Booking tool with action \"book\".\n  2. Announce the confirmed reference DC-XXXXXX, the date and time, and that their spot is reserved.\n\nERROR & CLINIC CLOSED SAFETY:\n- If the booking tool returns a note that today's hours have ended or that the clinic is closed on that day (e.g. Sunday): explain this clearly to the patient and offer the alternative times provided by the tool.\n- If the booking tool fails or returns an unfixable error: say once that you cannot check appointment times right now and give the clinic phone number +251 11 555 0123.\n- In case of ANY error: NEVER ask for name or phone, NEVER promise a callback, and NEVER output [[FORM]].",
           "maxIterations": 10,
           "returnIntermediateSteps": true
         }
@@ -228,7 +331,7 @@
     },
     {
       "parameters": {
-        "description": "Use ONLY when the patient wants to book, move or cancel an appointment, or asks about an appointment they already have. Never use it for greetings, prices, hours, services or other clinic questions, and never call it before you have the details the action needs. Books, finds, reschedules and cancels appointments and lists free time slots. Always set action. get_slots needs category and returns up to 3 free slots with ready-made labels. book needs slot_start (from get_slots), category, name, phone; email and reason_text optional. find needs phone. reschedule needs phone and new_slot_start (reference optional when the patient has one booking). cancel needs phone (reference optional when the patient has one booking). Leave fields that are not needed empty.\n",
+        "description": "Use ONLY when the patient wants to book, move or cancel an appointment, or asks about available slots. Returns available 30-minute appointment slots (each slot is 30 minutes, e.g. 8:00 AM, 8:30 AM, 9:00 AM, 9:30 AM, 10:00 AM, 10:30 AM, 2:00 PM, 2:30 PM, etc.). Always set action. get_slots needs category and date_from/date_to. book needs slot_start (copied from get_slots), category, name, and phone. find needs phone. reschedule needs phone and new_slot_start. cancel needs phone.",
         "workflowId": {
           "__rl": true,
           "value": "2Vvc0zyWhUsKaaBV",
@@ -253,7 +356,7 @@
             "phone": "={{ $fromAI('phone', 'Patient phone number as the patient typed it. Used by book, find, reschedule, cancel', 'string') }}",
             "email": "={{ $fromAI('email', 'Patient email. Used by book. Empty if none', 'string') }}",
             "reference": "={{ $fromAI('reference', 'Booking reference like DC-482913. Used by reschedule and cancel. Empty if unknown', 'string') }}",
-            "source": "={{ $('Code in JavaScript').first().json.channel }}"
+            "source": "web"
           },
           "matchingColumns": [],
           "schema": [
@@ -491,6 +594,46 @@
       ]
     },
     "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Branch by User Language",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Branch by User Language": {
+      "main": [
+        [
+          {
+            "node": "Amharic Track Directives",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "English Track Directives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Amharic Track Directives": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (RAG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "English Track Directives": {
       "main": [
         [
           {
